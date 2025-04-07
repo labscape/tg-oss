@@ -13,6 +13,7 @@ import { flatMap } from "lodash-es";
 import uniqid from "shortid";
 import { cloneDeep } from "lodash-es";
 import classNames from "classnames";
+import * as biomsa from "biomsa";
 
 import ToolbarItem from "./ToolbarItem";
 import { connectToEditor } from "../withEditorProps";
@@ -188,7 +189,7 @@ class AlignmentTool extends React.Component {
     });
 
     const unAlignedSequences = seqsToAlign.map(({ sequence }) => sequence);
-    const alignedSequencesNoInfo = yield biomsa.align(unAlignedSequences);
+    const alignedSequencesNoInfo = await biomsa.align(unAlignedSequences);
     const alignedSequences = alignedSequencesNoInfo.map((sequence, index) => ({
       sequence,
       name: seqsToAlign[index].name,
