@@ -74,11 +74,6 @@ class AlignmentToolDropdown extends React.Component {
           Create New Alignment
         </Button>
         <br></br>
-        <br></br>
-        <Callout intent="warning">
-          Note: This tool requires an alignment server to be hooked up for it to
-          work properly. It will NOT work in the OVE demo page.
-        </Callout>
         <div className="vespacer" />
         {hasSavedAlignments && (
           <div>
@@ -104,9 +99,6 @@ class AlignmentTool extends React.Component {
   sendSelectedDataToBackendForAlignment = async values => {
     const {
       addedSequences,
-      isPairwiseAlignment,
-      isAlignToRefSeq,
-      isAutotrimmedSeq
     } = values;
     const {
       hideModal,
@@ -117,47 +109,11 @@ class AlignmentTool extends React.Component {
     const { templateSeqIndex } = this.state;
     const addedSequencesToUse = array_move(addedSequences, templateSeqIndex, 0);
 
-    let addedSequencesToUseTrimmed;
-    if (isAutotrimmedSeq) {
-      addedSequencesToUseTrimmed = cloneDeep(addedSequencesToUse);
-      // trimming any sequences with chromatogram data
-      for (let i = 0; i < addedSequencesToUseTrimmed.length; i++) {
-        if ("chromatogramData" in addedSequencesToUseTrimmed[i]) {
-          // if (addedSequencesToUseTrimmed[i].chromatogramData.qualNums) {
-          if ("qualNums" in addedSequencesToUseTrimmed[i].chromatogramData) {
-            // returning bp pos for { suggestedTrimStart, suggestedTrimEnd }
-            const { suggestedTrimStart, suggestedTrimEnd } = mottTrim(
-              addedSequencesToUseTrimmed[i].chromatogramData.qualNums
-            );
-            addedSequencesToUseTrimmed[i].sequence = addedSequencesToUseTrimmed[
-              i
-            ].sequence.slice(suggestedTrimStart, suggestedTrimEnd + 1);
-            const elementsToTrim = ["baseCalls", "basePos", "qualNums"];
-            // eslint-disable-next-line no-unused-vars
-            for (const element in addedSequencesToUseTrimmed[i]
-              .chromatogramData) {
-              if (elementsToTrim.indexOf(element) !== -1) {
-                addedSequencesToUseTrimmed[i].chromatogramData[element] =
-                  addedSequencesToUseTrimmed[i].chromatogramData[element].slice(
-                    suggestedTrimStart,
-                    suggestedTrimEnd + 1
-                  );
-              }
-            }
-          }
-        }
-      }
-    }
     let seqsToAlign;
-    if (addedSequencesToUseTrimmed) {
-      seqsToAlign = addedSequencesToUseTrimmed;
-    } else {
-      seqsToAlign = addedSequencesToUse;
-    }
+    seqsToAlign = addedSequencesToUse;
 
     hideModal();
     const alignmentId = uniqid();
-    // const alignmentIdMismatches = uniqid();
     createNewAlignment({
       id: alignmentId,
       name: seqsToAlign[0].name + " Alignment"
@@ -166,26 +122,6 @@ class AlignmentTool extends React.Component {
     upsertAlignmentRun({
       id: alignmentId,
       loading: true
-    });
-    // createNewMismatchesList({
-    //   id: alignmentIdMismatches,
-    //   name: addedSequencesToUse[0].name + " Mismatches",
-    //   alignmentId: alignmentId
-    // });
-
-    // const j5server = process.env.REMOTE_J5 || "http://j5server.teselagen.com"
-
-    window.toastr.success("Alignment submitted.");
-    const replaceProtocol = url => {
-      return url.replace("http://", window.location.protocol + "//");
-    };
-
-    const seqInfoToSend = seqsToAlign.map(({ sequence, name, id }) => {
-      return {
-        sequence,
-        name,
-        id
-      };
     });
 
     const unAlignedSequences = seqsToAlign.map(({ sequence }) => sequence);
@@ -302,45 +238,6 @@ class AlignmentTool extends React.Component {
             })}
           </div>
           <br />
-          <CheckboxField
-            name="isPairwiseAlignment"
-            style={{ display: "flex", alignItems: "center" }}
-            label={
-              <div>
-                Create Pairwise Alignment{" "}
-                <span style={{ fontSize: 11 }}>
-                  Individually align each uploaded file against the template
-                  sequence (instead of creating a single Multiple Sequence
-                  Alignment)
-                </span>
-              </div>
-            }
-          />
-          <CheckboxField
-            name="isAlignToRefSeq"
-            style={{ display: "flex", alignItems: "center" }}
-            label={
-              <div>
-                Align Sequencing Reads to Reference Sequence{" "}
-                <span style={{ fontSize: 11 }}>
-                  Align short sequencing reads to a long reference sequence
-                </span>
-              </div>
-            }
-          />
-          <CheckboxField
-            name="isAutotrimmedSeq"
-            style={{ display: "flex", alignItems: "center" }}
-            label={
-              <div>
-                Auto-Trim Sequences{" "}
-                <span style={{ fontSize: 11 }}>
-                  Automatically trim low-quality ends of sequences based on
-                  quality scores
-                </span>
-              </div>
-            }
-          />
 
           <Button
             style={{ marginTop: 15, float: "right" }}
