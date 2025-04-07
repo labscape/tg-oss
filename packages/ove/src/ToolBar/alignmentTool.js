@@ -187,69 +187,27 @@ class AlignmentTool extends React.Component {
       };
     });
 
-    const {
-      alignedSequences: _alignedSequences,
-      pairwiseAlignments,
-      alignmentsToRefSeq
-    } = await (
-      await fetch({
-        url: replaceProtocol("http://j5server.teselagen.com/alignment/run"),
-        method: "post",
-        body: JSON.stringify({
-          //only send over the bear necessities :)
-          sequencesToAlign: seqInfoToSend,
-          isPairwiseAlignment,
-          isAlignToRefSeq
-        })
-      })
-    ).json();
-
-    // alignmentsToRefSeq set to alignedSequences for now
-    let alignedSequences = _alignedSequences;
-    if (alignmentsToRefSeq) {
-      alignedSequences = alignmentsToRefSeq;
-    }
-    if (!alignedSequences && !pairwiseAlignments)
+    const unAlignedSequences = seqsToAlign.map(({ sequence }) => sequence);
+    const alignedSequencesNoInfo = yield biomsa.align(unAlignedSequences);
+    const alignedSequences = alignedSequencesNoInfo.map((sequence, index) => ({
+      sequence,
+      name: seqsToAlign[index].name,
+      id: seqsToAlign[index].id
+    }));
+    if (!alignedSequences)
       window.toastr.error("Error running sequence alignment!");
-    //set the alignment to loading
-    upsertAlignmentRun({
+    const dataToUpsert = {
       id: alignmentId,
-      pairwiseAlignments:
-        pairwiseAlignments &&
-        pairwiseAlignments.map((alignedSequences, topIndex) => {
-          return alignedSequences.map((alignmentData, innerIndex) => {
-            return {
-              sequenceData: seqsToAlign[innerIndex > 0 ? topIndex + 1 : 0],
-              alignmentData,
-              chromatogramData: seqsToAlign[innerIndex].chromatogramData
-            };
-          });
-        }),
-      alignmentTracks:
-        alignedSequences &&
-        alignedSequences.map(alignmentData => {
-          return {
-            sequenceData:
-              seqsToAlign[
-                alignmentData.name.slice(0, alignmentData.name.indexOf("_"))
-              ],
-            alignmentData,
-            chromatogramData:
-              seqsToAlign[
-                alignmentData.name.slice(0, alignmentData.name.indexOf("_"))
-              ].chromatogramData
-          };
-        })
-      // alignmentTracks:
-      //   alignedSequences &&
-      //   alignedSequences.map((alignmentData, i) => {
-      //     return {
-      //       sequenceData: addedSequencesToUse[i],
-      //       alignmentData,
-      //       chromatogramData: addedSequencesToUse[i].chromatogramData
-      //     };
-      //   })
-    });
+      alignmentTracks: alignedSequences && alignedSequences.map((alignmentData) => {
+        const originalSeq = seqsToAlign.find(seq => seq.name === alignmentData.name);
+        return {
+          sequenceData: originalSeq,
+          alignmentData,
+          ...(originalSeq.chromatogramData && { chromatogramData: originalSeq.chromatogramData })
+        };
+      })
+    };
+    upsertAlignmentRun2(dataToUpsert);
   };
 
   handleFileUpload = (files, onChange) => {
