@@ -72,7 +72,7 @@ const conf = ({
       minify: false,
       target: "es2015",
       emptyOutDir: true,
-      outDir: `../../dist/${name}`,
+      outDir: `dist/`,
       lib: {
         // Could also be a dictionary or array of multiple entry points.
         entry: "src/index.js",

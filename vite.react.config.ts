@@ -115,7 +115,7 @@ export default ({ name, dir }: { name: string; dir: string }) =>
       build: {
         minify: false,
         target: "es2015",
-        outDir: `../../${isDemo ? "demo-dist" : "dist"}/${name}`,
+        outDir: `dist/${name}`,
         ...(isDemo
           ? {}
           : {
@@ -124,7 +124,7 @@ export default ({ name, dir }: { name: string; dir: string }) =>
                 entry: "src/index.js",
                 name,
                 fileName: format => `index.${format}.js`,
-                formats: isUmd ? ["umd"] : ["es", "cjs"]
+                formats: ["umd"]
                 // Change this to the formats you want to support.
                 // Don't forgot to update your package.json as well.
               }
@@ -135,20 +135,7 @@ export default ({ name, dir }: { name: string; dir: string }) =>
             name: camelCase(name)
           },
           // External packages that should not be bundled into your library.
-          external:
-            mode === "demo" || isUmd
-              ? []
-              : [
-                  "react",
-                  "react-dom",
-                  "react/jsx-runtime",
-                  "redux",
-                  "react-redux",
-                  "redux-form",
-                  "@blueprintjs/core",
-                  "@blueprintjs/select",
-                  "@blueprintjs/datetime"
-                ]
+          external: []
         }
       },
       resolve: {
