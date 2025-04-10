@@ -5,6 +5,7 @@ import {
   TextareaField,
   EditableTextField,
   CheckboxField,
+  RadioGroupField,
   wrapDialog
 } from "@teselagen/ui";
 import { reduxForm, FieldArray } from "redux-form";
@@ -105,12 +106,27 @@ class AlignmentTool extends React.Component {
       upsertAlignmentRun
     } = this.props;
     const { templateSeqIndex } = this.state;
+
+    // Create a mapping of original indices to revcomFlags before we reorder
+    const revcomFlagsMap = addedSequences.map((seq, i) => ({
+      id: seq.id || `seq-${i}`,
+      revcom: !!revcomFlags[i]
+    }));
+
+    // Move template sequence to first position
     const addedSequencesToUse = array_move(addedSequences, templateSeqIndex, 0);
 
     // Process sequences, applying reverse complement if 'revcom' is checked
     const seqsToAlign = addedSequencesToUse.map((seq, index) => {
-      // Check if the revcom checkbox is checked for this sequence
-      const shouldReverseComplement = !!revcomFlags[index];
+      // Find the original revcom setting for this sequence
+      const seqId =
+        seq.id ||
+        `seq-${templateSeqIndex === index ? templateSeqIndex : index}`;
+      const revcomSetting = revcomFlagsMap.find(item => item.id === seqId);
+      const shouldReverseComplement = revcomSetting
+        ? revcomSetting.revcom
+        : false;
+
       if (shouldReverseComplement) {
         return {
           ...seq,
@@ -172,7 +188,11 @@ class AlignmentTool extends React.Component {
       });
       return results.forEach(result => {
         if (result.success) {
-          array.push("addedSequences", result.parsedSequence);
+          // Add an ID to the sequence for tracking
+          array.push("addedSequences", {
+            ...result.parsedSequence,
+            id: result.parsedSequence.id || uniqid()
+          });
         } else {
           return window.toastr.warning("Error parsing file: ", file.name);
         }
@@ -184,17 +204,22 @@ class AlignmentTool extends React.Component {
     const { handleSubmit } = this.props;
 
     const sequencesToAlign = fields.getAll() || [];
+
     return (
       <div>
         <h6>Or enter sequences in plain text format</h6>
         <div>
           <AddYourOwnSeqForm
             addSeq={newSeq => {
-              fields.push(newSeq);
+              fields.push({
+                ...newSeq,
+                id: uniqid()
+              });
             }}
           />
           <h6 style={{ marginTop: 15 }}>Sequences To Align: </h6>
           {!fields.getAll() && <div>No sequences added yet.</div>}
+
           <div
             style={{ maxHeight: 180, overflowY: "auto" }}
             className="veAlignmentToolSelectedSequenceList"
@@ -202,11 +227,6 @@ class AlignmentTool extends React.Component {
             {sequencesToAlign.map((addedSeq, index) => {
               return (
                 <div
-                  onClick={() => {
-                    this.setState({
-                      templateSeqIndex: index
-                    });
-                  }}
                   style={{
                     borderBottom: "1px solid lightgrey",
                     paddingBottom: 4,
@@ -218,24 +238,36 @@ class AlignmentTool extends React.Component {
                   }}
                   key={index}
                 >
-                  <div>
+                  <div style={{ display: "flex", alignItems: "center" }}>
+                    <RadioGroupField
+                      name="templateSequence"
+                      value={templateSeqIndex === index ? index.toString() : ""}
+                      onChange={() => {
+                        this.setState({
+                          templateSeqIndex: index
+                        });
+                      }}
+                      options={[{ value: index.toString(), label: "" }]}
+                      inline
+                      style={{ margin: 0, marginRight: "5px" }}
+                    />
                     {addedSeq.name}{" "}
                     <span style={{ fontSize: 10 }}>
                       {" "}
                       ({addedSeq.sequence.length} bps)
                     </span>
+                    {index === templateSeqIndex && (
+                      <div
+                        className={classNames(
+                          Classes.TAG,
+                          Classes.ROUND,
+                          Classes.INTENT_PRIMARY
+                        )}
+                      >
+                        template
+                      </div>
+                    )}
                   </div>
-                  {index === templateSeqIndex && (
-                    <div
-                      className={classNames(
-                        Classes.TAG,
-                        Classes.ROUND,
-                        Classes.INTENT_PRIMARY
-                      )}
-                    >
-                      template
-                    </div>
-                  )}
                   <div
                     style={{
                       display: "flex",
@@ -247,7 +279,6 @@ class AlignmentTool extends React.Component {
                       name={`revcomFlags[${index}]`}
                       label="RC"
                       onClick={e => e.stopPropagation()}
-                      style={{ margin: 0, marginRight: "4px" }}
                     />
                     <Button
                       onClick={e => {
