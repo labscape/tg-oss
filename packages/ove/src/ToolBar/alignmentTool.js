@@ -97,7 +97,7 @@ class AlignmentTool extends React.Component {
     templateSeqIndex: 0
   };
   sendSelectedDataToBackendForAlignment = async values => {
-    const { addedSequences } = values;
+    const { addedSequences, revcomFlags = [] } = values;
     const {
       hideModal,
       /* onAlignmentSuccess, */ createNewAlignment,
@@ -110,8 +110,7 @@ class AlignmentTool extends React.Component {
     // Process sequences, applying reverse complement if 'revcom' is checked
     const seqsToAlign = addedSequencesToUse.map((seq, index) => {
       // Check if the revcom checkbox is checked for this sequence
-      const shouldReverseComplement = values[`revcom_${index}`];
-
+      const shouldReverseComplement = !!revcomFlags[index];
       if (shouldReverseComplement) {
         return {
           ...seq,
@@ -245,7 +244,7 @@ class AlignmentTool extends React.Component {
                     }}
                   >
                     <CheckboxField
-                      name={`revcom_${index}`}
+                      name={`revcomFlags[${index}]`}
                       label="RC"
                       onClick={e => e.stopPropagation()}
                       style={{ margin: 0, marginRight: "4px" }}
