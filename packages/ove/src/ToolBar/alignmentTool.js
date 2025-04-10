@@ -4,6 +4,7 @@ import {
   FileUploadField,
   TextareaField,
   EditableTextField,
+  CheckboxField,
   wrapDialog
 } from "@teselagen/ui";
 import { reduxForm, FieldArray } from "redux-form";
@@ -12,6 +13,7 @@ import { flatMap } from "lodash-es";
 import uniqid from "shortid";
 import classNames from "classnames";
 import biomsa from "biomsa";
+import { getReverseComplementSequenceString } from "@teselagen/sequence-utils";
 
 import ToolbarItem from "./ToolbarItem";
 import { connectToEditor } from "../withEditorProps";
@@ -105,7 +107,20 @@ class AlignmentTool extends React.Component {
     const { templateSeqIndex } = this.state;
     const addedSequencesToUse = array_move(addedSequences, templateSeqIndex, 0);
 
-    const seqsToAlign = addedSequencesToUse;
+    // Process sequences, applying reverse complement if 'revcom' is checked
+    const seqsToAlign = addedSequencesToUse.map((seq, index) => {
+      // Check if the revcom checkbox is checked for this sequence
+      const shouldReverseComplement = values[`revcom_${index}`];
+
+      if (shouldReverseComplement) {
+        return {
+          ...seq,
+          sequence: getReverseComplementSequenceString(seq.sequence),
+          revComplemented: true // Mark that this sequence has been reverse complemented
+        };
+      }
+      return seq;
+    });
 
     hideModal();
     const alignmentId = uniqid();
@@ -124,7 +139,8 @@ class AlignmentTool extends React.Component {
     const alignedSequences = alignedSequencesNoInfo.map((sequence, index) => ({
       sequence,
       name: seqsToAlign[index].name,
-      id: seqsToAlign[index].id
+      id: seqsToAlign[index].id,
+      ...(seqsToAlign[index].revComplemented && { revComplemented: true })
     }));
     if (!alignedSequences)
       window.toastr.error("Error running sequence alignment!");
@@ -221,19 +237,32 @@ class AlignmentTool extends React.Component {
                       template
                     </div>
                   )}
-
-                  <Button
-                    onClick={e => {
-                      e.stopPropagation();
-                      e.preventDefault();
-                      fields.remove(index);
-                      if (index === templateSeqIndex) {
-                        this.setState({ templateSeqIndex: 0 });
-                      }
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px"
                     }}
                   >
-                    Remove
-                  </Button>
+                    <CheckboxField
+                      name={`revcom_${index}`}
+                      label="RC"
+                      onClick={e => e.stopPropagation()}
+                      style={{ margin: 0, marginRight: "4px" }}
+                    />
+                    <Button
+                      onClick={e => {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        fields.remove(index);
+                        if (index === templateSeqIndex) {
+                          this.setState({ templateSeqIndex: 0 });
+                        }
+                      }}
+                    >
+                      Remove
+                    </Button>
+                  </div>
                 </div>
               );
             })}
