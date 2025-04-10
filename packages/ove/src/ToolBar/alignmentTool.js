@@ -1,19 +1,17 @@
 import React from "react";
-import { Icon, Button, Intent, Classes, Callout } from "@blueprintjs/core";
+import { Icon, Button, Intent, Classes } from "@blueprintjs/core";
 import {
   FileUploadField,
   TextareaField,
   EditableTextField,
-  CheckboxField,
   wrapDialog
 } from "@teselagen/ui";
 import { reduxForm, FieldArray } from "redux-form";
 import { anyToJson } from "@teselagen/bio-parsers";
 import { flatMap } from "lodash-es";
 import uniqid from "shortid";
-import { cloneDeep } from "lodash-es";
 import classNames from "classnames";
-import * as biomsa from "biomsa";
+import biomsa from "biomsa";
 
 import ToolbarItem from "./ToolbarItem";
 import { connectToEditor } from "../withEditorProps";
@@ -97,9 +95,7 @@ class AlignmentTool extends React.Component {
     templateSeqIndex: 0
   };
   sendSelectedDataToBackendForAlignment = async values => {
-    const {
-      addedSequences,
-    } = values;
+    const { addedSequences } = values;
     const {
       hideModal,
       /* onAlignmentSuccess, */ createNewAlignment,
@@ -109,8 +105,7 @@ class AlignmentTool extends React.Component {
     const { templateSeqIndex } = this.state;
     const addedSequencesToUse = array_move(addedSequences, templateSeqIndex, 0);
 
-    let seqsToAlign;
-    seqsToAlign = addedSequencesToUse;
+    const seqsToAlign = addedSequencesToUse;
 
     hideModal();
     const alignmentId = uniqid();
@@ -135,16 +130,22 @@ class AlignmentTool extends React.Component {
       window.toastr.error("Error running sequence alignment!");
     const dataToUpsert = {
       id: alignmentId,
-      alignmentTracks: alignedSequences && alignedSequences.map((alignmentData) => {
-        const originalSeq = seqsToAlign.find(seq => seq.name === alignmentData.name);
-        return {
-          sequenceData: originalSeq,
-          alignmentData,
-          ...(originalSeq.chromatogramData && { chromatogramData: originalSeq.chromatogramData })
-        };
-      })
+      alignmentTracks:
+        alignedSequences &&
+        alignedSequences.map(alignmentData => {
+          const originalSeq = seqsToAlign.find(
+            seq => seq.name === alignmentData.name
+          );
+          return {
+            sequenceData: originalSeq,
+            alignmentData,
+            ...(originalSeq.chromatogramData && {
+              chromatogramData: originalSeq.chromatogramData
+            })
+          };
+        })
     };
-    upsertAlignmentRun2(dataToUpsert);
+    upsertAlignmentRun(dataToUpsert);
   };
 
   handleFileUpload = (files, onChange) => {
@@ -320,40 +321,3 @@ const AddYourOwnSeqForm = reduxForm({
     </form>
   );
 });
-
-function mottTrim(qualNums) {
-  if (!qualNums) return;
-  let startPos = 0;
-  let endPos = 0;
-  const totalScoreInfo = [];
-  let score = 0;
-  let totalScore = 0;
-  const cutoff = 0.05;
-  for (let i = 0; i < qualNums.length; i++) {
-    // low-quality bases have high error probabilities, so may have a negative base score
-    score = cutoff - Math.pow(10, qualNums[i] / -10);
-    totalScore += score;
-    totalScoreInfo.push(totalScore);
-    // score = score + cutoff - Math.pow(10, qualNums[i] / -10);
-    // if (totalScore < 0) {
-    //   tempStart = i;
-    // }
-    // if (i - tempStart > endPos - startPos) {
-    //   startPos = tempStart;
-    //   endPos = i;
-    // }
-    if (totalScore < 0) {
-      totalScore = 0;
-    }
-  }
-  const firstPositiveValue = totalScoreInfo.find(e => {
-    return e > 0;
-  });
-  startPos = totalScoreInfo.indexOf(firstPositiveValue);
-  const highestValue = Math.max(...totalScoreInfo);
-  endPos = totalScoreInfo.lastIndexOf(highestValue);
-  return {
-    suggestedTrimStart: startPos,
-    suggestedTrimEnd: endPos
-  };
-}
