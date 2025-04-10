@@ -247,11 +247,12 @@ class AlignmentTool extends React.Component {
                           templateSeqIndex: index
                         });
                       }}
-                      options={[{ value: index.toString(), label: "" }]}
+                      options={[
+                        { value: index.toString(), label: addedSeq.name }
+                      ]}
                       inline
                       style={{ margin: 0, marginRight: "5px" }}
                     />
-                    {addedSeq.name}{" "}
                     <span style={{ fontSize: 10 }}>
                       {" "}
                       ({addedSeq.sequence.length} bps)
