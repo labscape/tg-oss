@@ -193,20 +193,24 @@ class AlignmentTool extends React.Component {
       // Check if the revcom checkbox is checked for this sequence
       const shouldReverseComplement = !!revcomFlags[index];
 
+      // Create a copy we can modify
+      const processedSeq = { ...seq };
+
       if (shouldReverseComplement) {
-        return {
-          ...seq,
-          sequence: getReverseComplementSequenceString(seq.sequence),
-          revComplemented: true, // Mark that this sequence has been reverse complemented
-          // Reverse complement chromatogram data if it exists
-          ...(seq.chromatogramData && {
-            chromatogramData: reverseComplementChromatogramData(
-              seq.chromatogramData
-            )
-          })
-        };
+        // Modify the sequence in place
+        processedSeq.sequence = getReverseComplementSequenceString(
+          processedSeq.sequence
+        );
+        processedSeq.revComplemented = true; // Mark that this sequence has been reverse complemented
+
+        // Transform chromatogram data if it exists
+        if (processedSeq.chromatogramData) {
+          processedSeq.chromatogramData = reverseComplementChromatogramData(
+            processedSeq.chromatogramData
+          );
+        }
       }
-      return seq;
+      return processedSeq;
     });
 
     hideModal();
