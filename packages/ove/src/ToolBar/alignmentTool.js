@@ -20,6 +20,73 @@ import withEditorProps from "../withEditorProps";
 import { showDialog } from "../GlobalDialogUtils";
 import { compose } from "recompose";
 
+/**
+ * Reverse complements chromatogram data
+ * @param {Object} chromatogramData - The chromatogram data to reverse complement
+ * @returns {Object} - The reverse complemented chromatogram data
+ */
+function reverseComplementChromatogramData(chromatogramData) {
+  if (!chromatogramData) return null;
+
+  const { aTrace, tTrace, gTrace, cTrace, basePos, baseCalls, qualNums } =
+    chromatogramData;
+
+  const traceLength = cTrace ? cTrace.length : 0;
+
+  // Helper to reverse and complement base calls
+  const reverseComplementBaseCalls = baseCalls => {
+    if (!baseCalls) return [];
+
+    const complementMap = {
+      A: "T",
+      T: "A",
+      G: "C",
+      C: "G",
+      N: "N",
+      R: "Y",
+      Y: "R",
+      M: "K",
+      K: "M",
+      S: "S",
+      W: "W",
+      H: "D",
+      D: "H",
+      B: "V",
+      V: "B",
+      X: "X",
+      Z: "Z"
+    };
+
+    return baseCalls
+      .map(base => {
+        const upperBase = base.toUpperCase();
+        return complementMap[upperBase] || base;
+      })
+      .reverse();
+  };
+  const newChromatogramData = {
+    // Switch cTrace and gTrace, then reverse
+    cTrace: gTrace ? [...gTrace].reverse() : [],
+    gTrace: cTrace ? [...cTrace].reverse() : [],
+
+    // Switch aTrace and tTrace, then reverse
+    aTrace: tTrace ? [...tTrace].reverse() : [],
+    tTrace: aTrace ? [...aTrace].reverse() : [],
+
+    // For basePos: subtract from traceLength, multiply by -1, and reverse
+    basePos: basePos
+      ? basePos.map(pos => -1 * (pos - traceLength)).reverse()
+      : [],
+
+    // Reverse complement base calls
+    baseCalls: reverseComplementBaseCalls(baseCalls),
+
+    // Reverse qual nums
+    qualNums: qualNums ? [...qualNums].reverse() : []
+  };
+  return newChromatogramData;
+}
+
 export default connectToEditor(({ readOnly, toolBar = {} }) => {
   return {
     readOnly: readOnly,
@@ -111,7 +178,13 @@ class AlignmentTool extends React.Component {
         return {
           ...seq,
           sequence: getReverseComplementSequenceString(seq.sequence),
-          revComplemented: true // Mark that this sequence has been reverse complemented
+          revComplemented: true, // Mark that this sequence has been reverse complemented
+          // Reverse complement chromatogram data if it exists
+          ...(seq.chromatogramData && {
+            chromatogramData: reverseComplementChromatogramData(
+              seq.chromatogramData
+            )
+          })
         };
       }
       return seq;
