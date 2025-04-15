@@ -264,6 +264,8 @@ class AlignmentTool extends React.Component {
       window.toastr.error("Error running sequence alignment!");
     const dataToUpsert = {
       id: alignmentId,
+      name: "Alignment",
+      alignmentType: "Multiple Sequence Alignment",
       alignmentTracks:
         alignedSequences &&
         alignedSequences.map(alignmentData => {
@@ -400,6 +402,7 @@ class AlignmentTool extends React.Component {
                       name={`revcomFlags[${index}]`}
                       label="RC"
                       onClick={e => e.stopPropagation()}
+                      noMarginBottom
                     />
                     <Button
                       onClick={e => {
