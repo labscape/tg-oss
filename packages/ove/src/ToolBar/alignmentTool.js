@@ -177,7 +177,34 @@ class AlignmentToolDropdown extends React.Component {
 const ConnectedAlignmentToolDropdown = withEditorProps(AlignmentToolDropdown);
 
 class AlignmentTool extends React.Component {
-  state = {};
+  state = {
+    currentSequenceNames: []
+  };
+
+  // Helper function to create unique sequence names with numeric suffixes
+  getUniqueSequenceName = (name, existingNames = []) => {
+    // If name doesn't exist in the array, return it as is
+    if (!existingNames.includes(name)) {
+      return name;
+    }
+
+    // Find available numeric suffix
+    let counter = 1;
+    let newName;
+
+    do {
+      newName = `${name}_${counter}`;
+      counter++;
+    } while (existingNames.includes(newName));
+
+    return newName;
+  };
+
+  // Update state when sequences change
+  updateCurrentSequenceNames = sequences => {
+    const names = (sequences || []).map(seq => seq?.name || "").filter(Boolean);
+    this.setState({ currentSequenceNames: names });
+  };
 
   sendSelectedDataToBackendForAlignment = async values => {
     const { addedSequences, revcomFlags = [] } = values;
@@ -255,18 +282,42 @@ class AlignmentTool extends React.Component {
     upsertAlignmentRun(dataToUpsert);
   };
 
-  handleFileUpload = (files, onChange) => {
+  handleFileUpload = (files, onChange, existingNames = []) => {
     const { array } = this.props;
+    // Keep a local cache of sequence names we've added in this upload batch
+    const addedNames = new Set();
+
+    // Create a set from the array of existing names
+    const existingNamesSet = new Set(existingNames);
+
     flatMap(files, async file => {
       const results = await anyToJson(file.originalFileObj, {
         fileName: file.name,
         acceptParts: true
       });
+
       return results.forEach(result => {
         if (result.success) {
-          // Add an ID to the sequence for tracking
+          // Get original name
+          let uniqueName = result.parsedSequence.name;
+          let counter = 1;
+
+          // Check against both existing names and this batch's names
+          while (
+            existingNamesSet.has(uniqueName) ||
+            addedNames.has(uniqueName)
+          ) {
+            uniqueName = `${result.parsedSequence.name}_${counter}`;
+            counter++;
+          }
+
+          // Remember this name for future checks in this batch
+          addedNames.add(uniqueName);
+
+          // Add the sequence with unique name
           array.push("addedSequences", {
             ...result.parsedSequence,
+            name: uniqueName,
             id: result.parsedSequence.id || uniqid()
           });
         } else {
@@ -278,8 +329,15 @@ class AlignmentTool extends React.Component {
   };
   renderAddSequence = ({ fields }) => {
     const { handleSubmit } = this.props;
-
     const sequencesToAlign = fields.getAll() || [];
+
+    // Update state with current sequences when they change
+    if (sequencesToAlign?.length > 0) {
+      this.updateCurrentSequenceNames(sequencesToAlign);
+    }
+
+    // Store fields reference for use in file upload
+    this.fieldsInstance = fields;
 
     return (
       <div>
@@ -287,8 +345,18 @@ class AlignmentTool extends React.Component {
         <div>
           <AddYourOwnSeqForm
             addSeq={newSeq => {
+              const currentSequences = fields.getAll() || [];
+              // Extract just the names from the sequence objects
+              const existingNames = currentSequences.map(seq => seq.name);
+
+              const uniqueName = this.getUniqueSequenceName(
+                newSeq.name,
+                existingNames
+              );
+
               fields.push({
                 ...newSeq,
+                name: uniqueName,
                 id: uniqid()
               });
             }}
@@ -370,7 +438,21 @@ class AlignmentTool extends React.Component {
         <FileUploadField
           name="alignmentToolSequenceUpload"
           style={{ maxWidth: 400 }}
-          beforeUpload={this.handleFileUpload}
+          beforeUpload={(files, onChange) => {
+            // Get current sequences directly from fields if possible
+            let currentSequences = [];
+            if (this.fieldsInstance?.getAll) {
+              currentSequences = this.fieldsInstance.getAll() || [];
+            }
+
+            // Fallback to state if we couldn't get fields
+            const currentSequenceNames =
+              currentSequences.length > 0
+                ? currentSequences.map(seq => seq?.name || "").filter(Boolean)
+                : this.state.currentSequenceNames;
+
+            this.handleFileUpload(files, onChange, currentSequenceNames);
+          }}
         />
         {selectFromSequenceLibraryHook && (
           <h6>Or Select from your sequence library </h6>
