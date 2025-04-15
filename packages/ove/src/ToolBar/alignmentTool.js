@@ -28,8 +28,7 @@ import { compose } from "recompose";
 function reverseComplementChromatogramData(chromatogramData) {
   if (!chromatogramData) return null;
 
-  const { aTrace, tTrace, gTrace, cTrace, basePos, baseCalls, qualNums } =
-    chromatogramData;
+  const { cTrace, baseTraces, basePos, baseCalls, qualNums } = chromatogramData;
 
   const traceLength = cTrace ? cTrace.length : 0;
 
@@ -64,14 +63,28 @@ function reverseComplementChromatogramData(chromatogramData) {
       })
       .reverse();
   };
-  const newChromatogramData = {
-    // Switch cTrace and gTrace, then reverse
-    cTrace: gTrace ? [...gTrace].reverse() : [],
-    gTrace: cTrace ? [...cTrace].reverse() : [],
 
-    // Switch aTrace and tTrace, then reverse
-    aTrace: tTrace ? [...tTrace].reverse() : [],
-    tTrace: aTrace ? [...aTrace].reverse() : [],
+  // Helper function to process trace data, switching complementary traces and reversing
+  const processTraceData = traceData => {
+    if (!traceData) return {};
+
+    // Extract only the needed properties, preserving others
+    const { aTrace, tTrace, gTrace, cTrace, ...otherProps } = traceData;
+
+    return {
+      ...otherProps,
+      // Switch cTrace and gTrace, then reverse
+      cTrace: gTrace ? [...gTrace].reverse() : [],
+      gTrace: cTrace ? [...cTrace].reverse() : [],
+
+      // Switch aTrace and tTrace, then reverse
+      aTrace: tTrace ? [...tTrace].reverse() : [],
+      tTrace: aTrace ? [...aTrace].reverse() : []
+    };
+  };
+
+  const newChromatogramData = {
+    ...processTraceData(chromatogramData),
 
     // For basePos: subtract from traceLength, multiply by -1, and reverse
     basePos: basePos
@@ -82,8 +95,14 @@ function reverseComplementChromatogramData(chromatogramData) {
     baseCalls: reverseComplementBaseCalls(baseCalls),
 
     // Reverse qual nums
-    qualNums: qualNums ? [...qualNums].reverse() : []
+    qualNums: qualNums ? [...qualNums].reverse() : [],
+
+    // Process baseTraces in reverse order
+    baseTraces: baseTraces
+      ? baseTraces.map(trace => processTraceData(trace)).reverse()
+      : []
   };
+
   return newChromatogramData;
 }
 
