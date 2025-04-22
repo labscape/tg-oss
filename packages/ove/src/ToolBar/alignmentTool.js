@@ -22,13 +22,13 @@ import { compose } from "recompose";
 
 /**
  * Reverse complements chromatogram data
- * @param {Object} chromatogramData - The chromatogram data to reverse complement
- * @returns {Object} - The reverse complemented chromatogram data
+ * @param {Object} sequenceData - The sequence data to reverse complement
+ * @returns {Object} - The reverse complemented sequence data
  */
-function reverseComplementChromatogramData(chromatogramData) {
-  if (!chromatogramData) return null;
+function reverseComplementSequenceData(sequenceData) {
+  if (!sequenceData) return null;
 
-  const { cTrace, baseTraces, basePos, baseCalls, qualNums } = chromatogramData;
+  const { cTrace, baseTraces, basePos, baseCalls, qualNums } = sequenceData;
 
   const traceLength = cTrace ? cTrace.length : 0;
 
@@ -83,8 +83,8 @@ function reverseComplementChromatogramData(chromatogramData) {
     };
   };
 
-  const newChromatogramData = {
-    ...processTraceData(chromatogramData),
+  const newSequenceData = {
+    ...processTraceData(sequenceData),
 
     // For basePos: subtract from traceLength, multiply by -1, and reverse
     basePos: basePos
@@ -103,7 +103,7 @@ function reverseComplementChromatogramData(chromatogramData) {
       : []
   };
 
-  return newChromatogramData;
+  return newSequenceData;
 }
 
 export default connectToEditor(({ readOnly, toolBar = {} }) => {
@@ -220,23 +220,96 @@ class AlignmentTool extends React.Component {
       // Check if the revcom checkbox is checked for this sequence
       const shouldReverseComplement = !!revcomFlags[index];
 
-      // Create a copy we can modify
-      const processedSeq = { ...seq };
-
-      if (shouldReverseComplement) {
-        // Modify the sequence in place
-        processedSeq.sequence = getReverseComplementSequenceString(
-          processedSeq.sequence
-        );
-        processedSeq.revComplemented = true; // Mark that this sequence has been reverse complemented
-
-        // Transform chromatogram data if it exists
-        if (processedSeq.chromatogramData) {
-          processedSeq.chromatogramData = reverseComplementChromatogramData(
-            processedSeq.chromatogramData
-          );
-        }
+      // If the sequence is not being reverse complemented, return it as is
+      if (!shouldReverseComplement) {
+        return seq;
       }
+
+      // Only keep a subset of keys that we can easily reverse complement
+      const keysToKeep = [
+        "sequence",
+        "chromatogramData",
+        "features",
+        "isDNA",
+        "isDoubleStrandedDNA",
+        "circular",
+        "isProtein",
+        "isTemplate",
+        "orfs",
+        "type",
+        "name",
+        "id",
+        "revComplemented"
+      ];
+
+      // Create a copy of the sequence with only the keys we need
+      const processedSeq = Object.fromEntries(
+        Object.entries(seq).filter(([key]) => keysToKeep.includes(key))
+      );
+      // Specifically copy the features object
+      if (seq.features) {
+        processedSeq.features = { ...seq.features };
+      }
+
+      // Modify the sequence in place
+      processedSeq.sequence = getReverseComplementSequenceString(
+        processedSeq.sequence
+      );
+
+      // Transform chromatogram data if it exists
+      if (processedSeq.chromatogramData) {
+        processedSeq.chromatogramData = reverseComplementSequenceData(
+          processedSeq.chromatogramData
+        );
+      }
+
+      // Reverse complement features (adjust start, end, forward, strand, optionally locations)
+      if (seq.features && Object.keys(seq.features).length) {
+        processedSeq.features = Object.fromEntries(
+          Object.entries(seq.features).map(([id, feature]) => [
+            id,
+            {
+              ...feature,
+              start: processedSeq.sequence.length - feature.end,
+              end: processedSeq.sequence.length - feature.start,
+              forward: !feature.forward,
+              strand: feature.strand === 1 ? -1 : 1,
+              locations:
+                feature.locations?.map(loc => ({
+                  ...loc,
+                  start: processedSeq.sequence.length - loc.end,
+                  end: processedSeq.sequence.length - loc.start
+                })) || []
+            }
+          ])
+        );
+      } else {
+        processedSeq.features = {};
+      }
+
+      // Reverse complement orfs (adjust start, end, forward, frame, internalStartCodonIndices)
+      if (processedSeq.orfs && processedSeq.orfs.length) {
+        processedSeq.orfs = processedSeq.orfs.map(orf => {
+          return {
+            ...orf,
+            start: processedSeq.sequence.length - orf.end,
+            end: processedSeq.sequence.length - orf.start,
+            forward: !orf.forward,
+            strand: orf.strand === 1 ? -1 : 1,
+            frame: ((processedSeq.sequence.length - orf.start) % 3) + 1,
+            internalStartCodonIndices:
+              orf.internalStartCodonIndices
+                ?.map(index => processedSeq.sequence.length - index)
+                ?.reverse() || []
+          };
+        });
+      } else {
+        processedSeq.orfs = [];
+      }
+
+      // Mark that this sequence has been reverse complemented
+      processedSeq.revComplemented = true;
+
       return processedSeq;
     });
 
