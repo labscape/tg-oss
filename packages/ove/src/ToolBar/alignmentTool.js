@@ -12,7 +12,7 @@ import { anyToJson } from "@teselagen/bio-parsers";
 import { flatMap } from "lodash-es";
 import uniqid from "shortid";
 import biomsa from "biomsa";
-import { getReverseComplementSequenceString } from "@teselagen/sequence-utils";
+import { getReverseComplementSequenceAndAnnotations } from "@teselagen/sequence-utils";
 
 import ToolbarItem from "./ToolbarItem";
 import { connectToEditor } from "../withEditorProps";
@@ -227,34 +227,40 @@ class AlignmentTool extends React.Component {
 
       // Only keep a subset of keys that we can easily reverse complement
       const keysToKeep = [
-        "sequence",
         "chromatogramData",
+        "circular",
         "features",
+        "id",
         "isDNA",
         "isDoubleStrandedDNA",
-        "circular",
         "isProtein",
         "isTemplate",
-        "orfs",
-        "type",
         "name",
-        "id",
-        "revComplemented"
+        "orfs",
+        "revComplemented",
+        "sequence",
+        "translations",
+        "type"
       ];
 
       // Create a copy of the sequence with only the keys we need
-      const processedSeq = Object.fromEntries(
+      const filteredSeq = Object.fromEntries(
         Object.entries(seq).filter(([key]) => keysToKeep.includes(key))
       );
-      // Specifically copy the features object
+      // Specifically copy the features, translations, and orfs objects
       if (seq.features) {
-        processedSeq.features = { ...seq.features };
+        filteredSeq.features = { ...seq.features };
+      }
+      if (seq.translations) {
+        filteredSeq.translations = { ...seq.translations };
+      }
+      if (seq.orfs) {
+        filteredSeq.orfs = [...seq.orfs];
       }
 
-      // Modify the sequence in place
-      processedSeq.sequence = getReverseComplementSequenceString(
-        processedSeq.sequence
-      );
+      // Reverse complement the sequence and annotations
+      const processedSeq =
+        getReverseComplementSequenceAndAnnotations(filteredSeq);
 
       // Transform chromatogram data if it exists
       if (processedSeq.chromatogramData) {
@@ -285,6 +291,40 @@ class AlignmentTool extends React.Component {
         );
       } else {
         processedSeq.features = {};
+      }
+
+      // Reverse complement translations (dict like features)
+      if (seq.translations && Object.keys(seq.translations).length) {
+        processedSeq.translations = Object.fromEntries(
+          Object.entries(seq.translations).map(([id, translation]) => [
+            id,
+            {
+              ...translation,
+              start: processedSeq.sequence.length - translation.end,
+              end: processedSeq.sequence.length - translation.start,
+              forward: !translation.forward,
+              strand: translation.strand === 1 ? -1 : 1,
+              aminoAcids: translation.aminoAcids
+                ? translation.aminoAcids
+                    .map(aa => ({
+                      ...aa,
+                      sequenceIndex:
+                        processedSeq.sequence.length - aa.sequenceIndex,
+                      aminoAcidIndex: aa.aminoAcidIndex,
+                      codonRange: aa.codonRange
+                        ? {
+                            start:
+                              processedSeq.sequence.length - aa.codonRange.end,
+                            end:
+                              processedSeq.sequence.length - aa.codonRange.start
+                          }
+                        : aa.codonRange
+                    }))
+                    .reverse()
+                : []
+            }
+          ])
+        );
       }
 
       // Reverse complement orfs (adjust start, end, forward, frame, internalStartCodonIndices)
