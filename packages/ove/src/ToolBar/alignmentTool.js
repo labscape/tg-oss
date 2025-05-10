@@ -1,5 +1,5 @@
 import React from "react";
-import { Icon, Button, Intent, Classes, Callout } from "@blueprintjs/core";
+import { Icon, Button, Intent } from "@blueprintjs/core";
 import {
   FileUploadField,
   TextareaField,
@@ -11,15 +11,100 @@ import { reduxForm, FieldArray } from "redux-form";
 import { anyToJson } from "@teselagen/bio-parsers";
 import { flatMap } from "lodash-es";
 import uniqid from "shortid";
-import { cloneDeep } from "lodash-es";
-import classNames from "classnames";
+import biomsa from "biomsa";
+import { getReverseComplementSequenceAndAnnotations } from "@teselagen/sequence-utils";
 
 import ToolbarItem from "./ToolbarItem";
 import { connectToEditor } from "../withEditorProps";
 import withEditorProps from "../withEditorProps";
 import { showDialog } from "../GlobalDialogUtils";
 import { compose } from "recompose";
-import { array_move } from "./array_move";
+
+/**
+ * Reverse complements chromatogram data
+ * @param {Object} sequenceData - The sequence data to reverse complement
+ * @returns {Object} - The reverse complemented sequence data
+ */
+function reverseComplementSequenceData(sequenceData) {
+  if (!sequenceData) return null;
+
+  const { cTrace, baseTraces, basePos, baseCalls, qualNums } = sequenceData;
+
+  const traceLength = cTrace ? cTrace.length : 0;
+
+  // Helper to reverse and complement base calls
+  const reverseComplementBaseCalls = baseCalls => {
+    if (!baseCalls) return [];
+
+    const complementMap = {
+      A: "T",
+      T: "A",
+      G: "C",
+      C: "G",
+      N: "N",
+      R: "Y",
+      Y: "R",
+      M: "K",
+      K: "M",
+      S: "S",
+      W: "W",
+      H: "D",
+      D: "H",
+      B: "V",
+      V: "B",
+      X: "X",
+      Z: "Z"
+    };
+
+    return baseCalls
+      .map(base => {
+        const upperBase = base.toUpperCase();
+        return complementMap[upperBase] || base;
+      })
+      .reverse();
+  };
+
+  // Helper function to process trace data, switching complementary traces and reversing
+  const processTraceData = traceData => {
+    if (!traceData) return {};
+
+    // Extract only the needed properties, preserving others
+    const { aTrace, tTrace, gTrace, cTrace, ...otherProps } = traceData;
+
+    return {
+      ...otherProps,
+      // Switch cTrace and gTrace, then reverse
+      cTrace: gTrace ? [...gTrace].reverse() : [],
+      gTrace: cTrace ? [...cTrace].reverse() : [],
+
+      // Switch aTrace and tTrace, then reverse
+      aTrace: tTrace ? [...tTrace].reverse() : [],
+      tTrace: aTrace ? [...aTrace].reverse() : []
+    };
+  };
+
+  const newSequenceData = {
+    ...processTraceData(sequenceData),
+
+    // For basePos: subtract from traceLength, multiply by -1, and reverse
+    basePos: basePos
+      ? basePos.map(pos => -1 * (pos - traceLength)).reverse()
+      : [],
+
+    // Reverse complement base calls
+    baseCalls: reverseComplementBaseCalls(baseCalls),
+
+    // Reverse qual nums
+    qualNums: qualNums ? [...qualNums].reverse() : [],
+
+    // Process baseTraces in reverse order
+    baseTraces: baseTraces
+      ? baseTraces.map(trace => processTraceData(trace)).reverse()
+      : []
+  };
+
+  return newSequenceData;
+}
 
 export default connectToEditor(({ readOnly, toolBar = {} }) => {
   return {
@@ -73,11 +158,6 @@ class AlignmentToolDropdown extends React.Component {
           Create New Alignment
         </Button>
         <br></br>
-        <br></br>
-        <Callout intent="warning">
-          Note: This tool requires an alignment server to be hooked up for it to
-          work properly. It will NOT work in the OVE demo page.
-        </Callout>
         <div className="vespacer" />
         {hasSavedAlignments && (
           <div>
@@ -98,65 +178,105 @@ const ConnectedAlignmentToolDropdown = withEditorProps(AlignmentToolDropdown);
 
 class AlignmentTool extends React.Component {
   state = {
-    templateSeqIndex: 0
+    currentSequenceNames: []
   };
+
+  // Helper function to create unique sequence names with numeric suffixes
+  getUniqueSequenceName = (name, existingNames = []) => {
+    // If name doesn't exist in the array, return it as is
+    if (!existingNames.includes(name)) {
+      return name;
+    }
+
+    // Find available numeric suffix
+    let counter = 1;
+    let newName;
+
+    do {
+      newName = `${name}_${counter}`;
+      counter++;
+    } while (existingNames.includes(newName));
+
+    return newName;
+  };
+
+  // Update state when sequences change
+  updateCurrentSequenceNames = sequences => {
+    const names = (sequences || []).map(seq => seq?.name || "").filter(Boolean);
+    this.setState({ currentSequenceNames: names });
+  };
+
   sendSelectedDataToBackendForAlignment = async values => {
-    const {
-      addedSequences,
-      isPairwiseAlignment,
-      isAlignToRefSeq,
-      isAutotrimmedSeq
-    } = values;
+    const { addedSequences, revcomFlags = [] } = values;
     const {
       hideModal,
       /* onAlignmentSuccess, */ createNewAlignment,
       // createNewMismatchesList,
       upsertAlignmentRun
     } = this.props;
-    const { templateSeqIndex } = this.state;
-    const addedSequencesToUse = array_move(addedSequences, templateSeqIndex, 0);
 
-    let addedSequencesToUseTrimmed;
-    if (isAutotrimmedSeq) {
-      addedSequencesToUseTrimmed = cloneDeep(addedSequencesToUse);
-      // trimming any sequences with chromatogram data
-      for (let i = 0; i < addedSequencesToUseTrimmed.length; i++) {
-        if ("chromatogramData" in addedSequencesToUseTrimmed[i]) {
-          // if (addedSequencesToUseTrimmed[i].chromatogramData.qualNums) {
-          if ("qualNums" in addedSequencesToUseTrimmed[i].chromatogramData) {
-            // returning bp pos for { suggestedTrimStart, suggestedTrimEnd }
-            const { suggestedTrimStart, suggestedTrimEnd } = mottTrim(
-              addedSequencesToUseTrimmed[i].chromatogramData.qualNums
-            );
-            addedSequencesToUseTrimmed[i].sequence = addedSequencesToUseTrimmed[
-              i
-            ].sequence.slice(suggestedTrimStart, suggestedTrimEnd + 1);
-            const elementsToTrim = ["baseCalls", "basePos", "qualNums"];
-            // eslint-disable-next-line no-unused-vars
-            for (const element in addedSequencesToUseTrimmed[i]
-              .chromatogramData) {
-              if (elementsToTrim.indexOf(element) !== -1) {
-                addedSequencesToUseTrimmed[i].chromatogramData[element] =
-                  addedSequencesToUseTrimmed[i].chromatogramData[element].slice(
-                    suggestedTrimStart,
-                    suggestedTrimEnd + 1
-                  );
-              }
-            }
-          }
-        }
+    // No need to reorder - first sequence is always the template
+    const seqsToAlign = addedSequences.map((seq, index) => {
+      // Check if the revcom checkbox is checked for this sequence
+      const shouldReverseComplement = !!revcomFlags[index];
+
+      // If the sequence is not being reverse complemented, return it as is
+      if (!shouldReverseComplement) {
+        return seq;
       }
-    }
-    let seqsToAlign;
-    if (addedSequencesToUseTrimmed) {
-      seqsToAlign = addedSequencesToUseTrimmed;
-    } else {
-      seqsToAlign = addedSequencesToUse;
-    }
+
+      // Only keep a subset of keys that we can easily reverse complement
+      const keysToKeep = [
+        "chromatogramData",
+        "circular",
+        "features",
+        "id",
+        "isDNA",
+        "isDoubleStrandedDNA",
+        "isProtein",
+        "isTemplate",
+        "name",
+        "orfs",
+        "revComplemented",
+        "sequence",
+        "translations",
+        "type"
+      ];
+
+      // Create a copy of the sequence with only the keys we need
+      const filteredSeq = Object.fromEntries(
+        Object.entries(seq).filter(([key]) => keysToKeep.includes(key))
+      );
+      // Specifically copy the features, translations, and orfs objects
+      if (seq.features) {
+        filteredSeq.features = { ...seq.features };
+      }
+      if (seq.translations) {
+        filteredSeq.translations = { ...seq.translations };
+      }
+      if (seq.orfs) {
+        filteredSeq.orfs = [...seq.orfs];
+      }
+
+      // Reverse complement the sequence and annotations
+      const processedSeq =
+        getReverseComplementSequenceAndAnnotations(filteredSeq);
+
+      // Transform chromatogram data if it exists
+      if (processedSeq.chromatogramData) {
+        processedSeq.chromatogramData = reverseComplementSequenceData(
+          processedSeq.chromatogramData
+        );
+      }
+
+      // Mark that this sequence has been reverse complemented
+      processedSeq.revComplemented = true;
+
+      return processedSeq;
+    });
 
     hideModal();
     const alignmentId = uniqid();
-    // const alignmentIdMismatches = uniqid();
     createNewAlignment({
       id: alignmentId,
       name: seqsToAlign[0].name + " Alignment"
@@ -166,102 +286,77 @@ class AlignmentTool extends React.Component {
       id: alignmentId,
       loading: true
     });
-    // createNewMismatchesList({
-    //   id: alignmentIdMismatches,
-    //   name: addedSequencesToUse[0].name + " Mismatches",
-    //   alignmentId: alignmentId
-    // });
 
-    // const j5server = process.env.REMOTE_J5 || "http://j5server.teselagen.com"
-
-    window.toastr.success("Alignment submitted.");
-    const replaceProtocol = url => {
-      return url.replace("http://", window.location.protocol + "//");
-    };
-
-    const seqInfoToSend = seqsToAlign.map(({ sequence, name, id }) => {
-      return {
-        sequence,
-        name,
-        id
-      };
-    });
-
-    const {
-      alignedSequences: _alignedSequences,
-      pairwiseAlignments,
-      alignmentsToRefSeq
-    } = await (
-      await fetch({
-        url: replaceProtocol("http://j5server.teselagen.com/alignment/run"),
-        method: "post",
-        body: JSON.stringify({
-          //only send over the bear necessities :)
-          sequencesToAlign: seqInfoToSend,
-          isPairwiseAlignment,
-          isAlignToRefSeq
-        })
-      })
-    ).json();
-
-    // alignmentsToRefSeq set to alignedSequences for now
-    let alignedSequences = _alignedSequences;
-    if (alignmentsToRefSeq) {
-      alignedSequences = alignmentsToRefSeq;
-    }
-    if (!alignedSequences && !pairwiseAlignments)
+    const unAlignedSequences = seqsToAlign.map(({ sequence }) => sequence);
+    const alignedSequencesNoInfo = await biomsa.align(unAlignedSequences);
+    const alignedSequences = alignedSequencesNoInfo.map((sequence, index) => ({
+      sequence,
+      name: seqsToAlign[index].name,
+      id: seqsToAlign[index].id,
+      ...(seqsToAlign[index].revComplemented && { revComplemented: true })
+    }));
+    if (!alignedSequences)
       window.toastr.error("Error running sequence alignment!");
-    //set the alignment to loading
-    upsertAlignmentRun({
+    const dataToUpsert = {
       id: alignmentId,
-      pairwiseAlignments:
-        pairwiseAlignments &&
-        pairwiseAlignments.map((alignedSequences, topIndex) => {
-          return alignedSequences.map((alignmentData, innerIndex) => {
-            return {
-              sequenceData: seqsToAlign[innerIndex > 0 ? topIndex + 1 : 0],
-              alignmentData,
-              chromatogramData: seqsToAlign[innerIndex].chromatogramData
-            };
-          });
-        }),
+      name: "Alignment",
+      alignmentType: "Multiple Sequence Alignment",
       alignmentTracks:
         alignedSequences &&
         alignedSequences.map(alignmentData => {
+          const originalSeq = seqsToAlign.find(
+            seq => seq.name === alignmentData.name
+          );
           return {
-            sequenceData:
-              seqsToAlign[
-                alignmentData.name.slice(0, alignmentData.name.indexOf("_"))
-              ],
+            sequenceData: originalSeq,
             alignmentData,
-            chromatogramData:
-              seqsToAlign[
-                alignmentData.name.slice(0, alignmentData.name.indexOf("_"))
-              ].chromatogramData
+            ...(originalSeq.chromatogramData && {
+              chromatogramData: originalSeq.chromatogramData
+            })
           };
         })
-      // alignmentTracks:
-      //   alignedSequences &&
-      //   alignedSequences.map((alignmentData, i) => {
-      //     return {
-      //       sequenceData: addedSequencesToUse[i],
-      //       alignmentData,
-      //       chromatogramData: addedSequencesToUse[i].chromatogramData
-      //     };
-      //   })
-    });
+    };
+    upsertAlignmentRun(dataToUpsert);
   };
 
-  handleFileUpload = (files, onChange) => {
+  handleFileUpload = (files, onChange, existingNames = []) => {
     const { array } = this.props;
+    // Keep a local cache of sequence names we've added in this upload batch
+    const addedNames = new Set();
+
+    // Create a set from the array of existing names
+    const existingNamesSet = new Set(existingNames);
+
     flatMap(files, async file => {
       const results = await anyToJson(file.originalFileObj, {
         fileName: file.name,
         acceptParts: true
       });
+
       return results.forEach(result => {
         if (result.success) {
-          array.push("addedSequences", result.parsedSequence);
+          // Get original name
+          let uniqueName = result.parsedSequence.name;
+          let counter = 1;
+
+          // Check against both existing names and this batch's names
+          while (
+            existingNamesSet.has(uniqueName) ||
+            addedNames.has(uniqueName)
+          ) {
+            uniqueName = `${result.parsedSequence.name}_${counter}`;
+            counter++;
+          }
+
+          // Remember this name for future checks in this batch
+          addedNames.add(uniqueName);
+
+          // Add the sequence with unique name
+          array.push("addedSequences", {
+            ...result.parsedSequence,
+            name: uniqueName,
+            id: result.parsedSequence.id || uniqid()
+          });
         } else {
           return window.toastr.warning("Error parsing file: ", file.name);
         }
@@ -269,21 +364,43 @@ class AlignmentTool extends React.Component {
     });
     onChange([]);
   };
-  renderAddSequence = ({ fields, templateSeqIndex }) => {
+  renderAddSequence = ({ fields }) => {
     const { handleSubmit } = this.props;
-
     const sequencesToAlign = fields.getAll() || [];
+
+    // Update state with current sequences when they change
+    if (sequencesToAlign?.length > 0) {
+      this.updateCurrentSequenceNames(sequencesToAlign);
+    }
+
+    // Store fields reference for use in file upload
+    this.fieldsInstance = fields;
+
     return (
       <div>
         <h6>Or enter sequences in plain text format</h6>
         <div>
           <AddYourOwnSeqForm
             addSeq={newSeq => {
-              fields.push(newSeq);
+              const currentSequences = fields.getAll() || [];
+              // Extract just the names from the sequence objects
+              const existingNames = currentSequences.map(seq => seq.name);
+
+              const uniqueName = this.getUniqueSequenceName(
+                newSeq.name,
+                existingNames
+              );
+
+              fields.push({
+                ...newSeq,
+                name: uniqueName,
+                id: uniqid()
+              });
             }}
           />
           <h6 style={{ marginTop: 15 }}>Sequences To Align: </h6>
           {!fields.getAll() && <div>No sequences added yet.</div>}
+
           <div
             style={{ maxHeight: 180, overflowY: "auto" }}
             className="veAlignmentToolSelectedSequenceList"
@@ -291,11 +408,6 @@ class AlignmentTool extends React.Component {
             {sequencesToAlign.map((addedSeq, index) => {
               return (
                 <div
-                  onClick={() => {
-                    this.setState({
-                      templateSeqIndex: index
-                    });
-                  }}
                   style={{
                     borderBottom: "1px solid lightgrey",
                     paddingBottom: 4,
@@ -307,81 +419,41 @@ class AlignmentTool extends React.Component {
                   }}
                   key={index}
                 >
-                  <div>
+                  <div style={{ display: "flex", alignItems: "center" }}>
                     {addedSeq.name}{" "}
                     <span style={{ fontSize: 10 }}>
                       {" "}
                       ({addedSeq.sequence.length} bps)
                     </span>
                   </div>
-                  {index === templateSeqIndex && (
-                    <div
-                      className={classNames(
-                        Classes.TAG,
-                        Classes.ROUND,
-                        Classes.INTENT_PRIMARY
-                      )}
-                    >
-                      template
-                    </div>
-                  )}
-
-                  <Button
-                    onClick={e => {
-                      e.stopPropagation();
-                      e.preventDefault();
-                      fields.remove(index);
-                      if (index === templateSeqIndex) {
-                        this.setState({ templateSeqIndex: 0 });
-                      }
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px"
                     }}
                   >
-                    Remove
-                  </Button>
+                    <CheckboxField
+                      name={`revcomFlags[${index}]`}
+                      label="RC"
+                      onClick={e => e.stopPropagation()}
+                      noMarginBottom
+                    />
+                    <Button
+                      onClick={e => {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        fields.remove(index);
+                      }}
+                    >
+                      Remove
+                    </Button>
+                  </div>
                 </div>
               );
             })}
           </div>
           <br />
-          <CheckboxField
-            name="isPairwiseAlignment"
-            style={{ display: "flex", alignItems: "center" }}
-            label={
-              <div>
-                Create Pairwise Alignment{" "}
-                <span style={{ fontSize: 11 }}>
-                  Individually align each uploaded file against the template
-                  sequence (instead of creating a single Multiple Sequence
-                  Alignment)
-                </span>
-              </div>
-            }
-          />
-          <CheckboxField
-            name="isAlignToRefSeq"
-            style={{ display: "flex", alignItems: "center" }}
-            label={
-              <div>
-                Align Sequencing Reads to Reference Sequence{" "}
-                <span style={{ fontSize: 11 }}>
-                  Align short sequencing reads to a long reference sequence
-                </span>
-              </div>
-            }
-          />
-          <CheckboxField
-            name="isAutotrimmedSeq"
-            style={{ display: "flex", alignItems: "center" }}
-            label={
-              <div>
-                Auto-Trim Sequences{" "}
-                <span style={{ fontSize: 11 }}>
-                  Automatically trim low-quality ends of sequences based on
-                  quality scores
-                </span>
-              </div>
-            }
-          />
 
           <Button
             style={{ marginTop: 15, float: "right" }}
@@ -398,24 +470,33 @@ class AlignmentTool extends React.Component {
 
   render() {
     const { selectFromSequenceLibraryHook } = this.props;
-    const { templateSeqIndex } = this.state;
     return (
       <div style={{ padding: 20 }} className="veAlignmentTool">
         <h6>Upload files you'd like to align (.ab1, .fasta, .gb) </h6>
         <FileUploadField
           name="alignmentToolSequenceUpload"
           style={{ maxWidth: 400 }}
-          beforeUpload={this.handleFileUpload}
+          beforeUpload={(files, onChange) => {
+            // Get current sequences directly from fields if possible
+            let currentSequences = [];
+            if (this.fieldsInstance?.getAll) {
+              currentSequences = this.fieldsInstance.getAll() || [];
+            }
+
+            // Fallback to state if we couldn't get fields
+            const currentSequenceNames =
+              currentSequences.length > 0
+                ? currentSequences.map(seq => seq?.name || "").filter(Boolean)
+                : this.state.currentSequenceNames;
+
+            this.handleFileUpload(files, onChange, currentSequenceNames);
+          }}
         />
         {selectFromSequenceLibraryHook && (
           <h6>Or Select from your sequence library </h6>
         )}
 
-        <FieldArray
-          name="addedSequences"
-          templateSeqIndex={templateSeqIndex}
-          component={this.renderAddSequence}
-        />
+        <FieldArray name="addedSequences" component={this.renderAddSequence} />
       </div>
     );
   }
@@ -464,40 +545,3 @@ const AddYourOwnSeqForm = reduxForm({
     </form>
   );
 });
-
-function mottTrim(qualNums) {
-  if (!qualNums) return;
-  let startPos = 0;
-  let endPos = 0;
-  const totalScoreInfo = [];
-  let score = 0;
-  let totalScore = 0;
-  const cutoff = 0.05;
-  for (let i = 0; i < qualNums.length; i++) {
-    // low-quality bases have high error probabilities, so may have a negative base score
-    score = cutoff - Math.pow(10, qualNums[i] / -10);
-    totalScore += score;
-    totalScoreInfo.push(totalScore);
-    // score = score + cutoff - Math.pow(10, qualNums[i] / -10);
-    // if (totalScore < 0) {
-    //   tempStart = i;
-    // }
-    // if (i - tempStart > endPos - startPos) {
-    //   startPos = tempStart;
-    //   endPos = i;
-    // }
-    if (totalScore < 0) {
-      totalScore = 0;
-    }
-  }
-  const firstPositiveValue = totalScoreInfo.find(e => {
-    return e > 0;
-  });
-  startPos = totalScoreInfo.indexOf(firstPositiveValue);
-  const highestValue = Math.max(...totalScoreInfo);
-  endPos = totalScoreInfo.lastIndexOf(highestValue);
-  return {
-    suggestedTrimStart: startPos,
-    suggestedTrimEnd: endPos
-  };
-}

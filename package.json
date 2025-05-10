@@ -15,7 +15,7 @@
     "@babel/preset-react": "^7.24.6",
     "@cypress/code-coverage": "^3.12.39",
     "@gmod/gff": "^1.2.1",
-    "@jscutlery/semver": "^5.2.2",
+    "@jscutlery/semver": "^5.6.0",
     "@nx/cypress": "20.4.6",
     "@nx/esbuild": "20.4.6",
     "@nx/eslint": "^20.4.6",

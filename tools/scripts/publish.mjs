@@ -97,7 +97,7 @@ try {
     chalk.bold.red(`Error writing package.json file from library build output.`)
   );
 }
-process.chdir(path.resolve(`../../dist/${name}`));
+process.chdir(path.resolve(`dist/${name}`));
 json = JSON.parse(readFileSync(`package.json`).toString());
 try {
   json.version = version;
